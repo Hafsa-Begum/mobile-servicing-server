@@ -5,6 +5,7 @@ const ObjectId = require('mongodb').ObjectId;
 const cors = require('cors');
 require('dotenv').config();
 const fileUpload = require('express-fileupload');
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -24,6 +25,7 @@ async function run() {
         const servicesCollection = database.collection("services");
         const ordersCollection = database.collection("orders");
         const usersCollection = database.collection("users");
+        const reviewsCollection = database.collection("reviews");
 
         app.get('/sixServices', async (req, res) => {
             const cursor = servicesCollection.find({});
@@ -65,6 +67,23 @@ async function run() {
             const result = await cursor.toArray();
             res.send(result);
         })
+        //get all reviews
+        app.get('/reviews', async (req, res) => {
+            const cursor = reviewsCollection.find({});
+            const result = await cursor.toArray();
+            res.send(result);
+        })
+        //get api to check admin
+        app.get('/users/:email', async (req, res) => {
+            const email = req.params.email;
+            const query = { email: email };
+            const user = await usersCollection.findOne(query);
+            let isAdmin = false;
+            if (user?.role === 'admin') {
+                isAdmin = true;
+            }
+            res.json({ admin: isAdmin })
+        })
         //add services
         app.post('/services', async (req, res) => {
             const name = req.body.name;
@@ -96,6 +115,13 @@ async function run() {
             const result = await usersCollection.insertOne(user);
             res.json(result)
         })
+        //reviews
+        app.post('/reviews', async (req, res) => {
+            const review = req.body;
+            const result = await reviewsCollection.insertOne(review);
+            res.json(result);
+
+        })
         //update users
         app.put('/users', async (req, res) => {
             const user = req.body;
@@ -113,6 +139,14 @@ async function run() {
             const result = await usersCollection.updateOne(filter, updateDoc);
             res.json(result);
         })
+        //update status
+        app.put('/orders/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: ObjectId(id) };
+            const updateDoc = { $set: { status: 'shipped' } };
+            const result = await ordersCollection.updateOne(filter, updateDoc);
+            res.json(result);
+        })
         //delete from manage orders
         app.delete('/orders/:id', async (req, res) => {
             const id = req.params.id;
@@ -126,6 +160,16 @@ async function run() {
             const query = { _id: ObjectId(id) };
             const result = await servicesCollection.deleteOne(query);
             res.json(result);
+        })
+        app.post('/create-payment-intent', async (req, res) => {
+            const paymentInfo = req.body;
+            const amount = paymentInfo.price * 100;
+            const paymentIntent = await stripe.paymentIntents.create({
+                currency: 'usd',
+                amount: amount,
+                payment_method_types: ['card']
+            });
+            res.json({ clientSecret: paymentIntent.client_secret })
         })
     }
     finally {
